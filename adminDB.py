@@ -1,8 +1,11 @@
 import streamlit as st
 import sqlite3
 import pandas as pd
+import datetime
+import io
 
-# Fonction pour se connecter à la base de données
+# --- Fonctions de la base de données ---
+
 def get_db_connection():
     """
     Établit une connexion à la base de données SQLite.
@@ -14,7 +17,6 @@ def get_db_connection():
         st.error(f"Erreur de connexion à la base de données : {e}")
         return None
 
-# Fonction pour obtenir la liste de toutes les tables
 def get_table_list():
     """
     Récupère une liste de toutes les tables non-système dans la base de données.
@@ -28,7 +30,6 @@ def get_table_list():
         return tables
     return []
 
-# Fonction pour vider une table
 def clear_table(table_name):
     """
     Vide une table de la base de données.
@@ -45,7 +46,6 @@ def clear_table(table_name):
         finally:
             conn.close()
 
-# Nouvelle fonction pour supprimer une table
 def delete_table(table_name):
     """
     Supprime une table de la base de données de manière sécurisée.
@@ -62,7 +62,6 @@ def delete_table(table_name):
         finally:
             conn.close()
 
-# Fonction pour charger les données d'une table
 def load_table_data(table_name):
     """
     Charge les données d'une table dans un DataFrame Pandas.
@@ -79,10 +78,30 @@ def load_table_data(table_name):
             conn.close()
     return pd.DataFrame()
 
+# --- Fonctions d'Exportation ---
+
+@st.cache_data
+def convert_df_to_csv(df):
+    """
+    Convertit un DataFrame en fichier CSV encodé en UTF-8.
+    """
+    return df.to_csv(index=False).encode('utf-8')
+
+def convert_df_to_excel(df):
+    """
+    Convertit un DataFrame en fichier Excel.
+    Nécessite 'openpyxl'.
+    """
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Données')
+    processed_data = output.getvalue()
+    return processed_data
+
 # --- Configuration de la page Streamlit ---
 st.set_page_config(page_title="Gestion des Données Santé", layout="wide")
 st.title("Gérer vos Données Santé")
-st.markdown("Utilisez cette page pour visualiser et gérer vos tables de données.")
+st.markdown("Utilisez cette page pour visualiser, gérer et exporter vos tables de données.")
 
 # --- Récupération dynamique des tables ---
 tables = get_table_list()
@@ -102,10 +121,76 @@ else:
             df_table = load_table_data(table_name)
             if not df_table.empty:
                 st.dataframe(df_table, use_container_width=True)
+
+                # --- NOUVELLE SECTION : EXPORTATION DES DONNÉES ---
+                st.markdown("---")
+                st.subheader("Exporter les données")
+
+                # S'assure que le DataFrame a des colonnes pour éviter les erreurs
+                if not df_table.columns.empty:
+                    col_export1, col_export2 = st.columns(2)
+
+                    with col_export1:
+                        # Sélection de la colonne de date
+                        date_column = st.selectbox(
+                            "Sélectionnez la colonne de date",
+                            df_table.columns,
+                            key=f"date_col_{table_name}"
+                        )
+
+                    with col_export2:
+                        # Sélection de la date de début
+                        start_date = st.date_input(
+                            "Exporter les données à partir du",
+                            datetime.date.today() - datetime.timedelta(days=30),
+                            key=f"date_input_{table_name}"
+                        )
+                    
+                    try:
+                        # Conversion de la colonne de date et de la date de début pour la comparaison
+                        df_table[date_column] = pd.to_datetime(df_table[date_column], errors='coerce')
+                        start_datetime = pd.to_datetime(start_date)
+
+                        # Filtrage du DataFrame
+                        filtered_df = df_table[df_table[date_column] >= start_datetime].copy()
+                        
+                        st.write(f"Aperçu des {len(filtered_df)} lignes à exporter :")
+                        st.dataframe(filtered_df, use_container_width=True)
+
+                        if not filtered_df.empty:
+                            col_btn1, col_btn2 = st.columns(2)
+                            with col_btn1:
+                                # Bouton de téléchargement CSV
+                                csv_data = convert_df_to_csv(filtered_df)
+                                st.download_button(
+                                    label="📥 Télécharger en CSV",
+                                    data=csv_data,
+                                    file_name=f"{table_name}_{start_date}.csv",
+                                    mime='text/csv',
+                                    key=f"csv_btn_{table_name}"
+                                )
+                            with col_btn2:
+                                # Bouton de téléchargement Excel
+                                excel_data = convert_df_to_excel(filtered_df)
+                                st.download_button(
+                                    label="📥 Télécharger en Excel",
+                                    data=excel_data,
+                                    file_name=f"{table_name}_{start_date}.xlsx",
+                                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                                    key=f"excel_btn_{table_name}"
+                                )
+                        else:
+                            st.warning("Aucune donnée à exporter pour la période sélectionnée.")
+
+                    except Exception as e:
+                        st.error(f"Erreur lors du filtrage par date : {e}. Assurez-vous que la colonne sélectionnée contient des dates valides.")
+                
             else:
                 st.info("La table est vide.")
 
+            # --- Section de gestion de la table ---
             st.markdown("---")
+            st.subheader("Gérer la table")
             col1, col2 = st.columns(2)
             
             with col1:
@@ -115,21 +200,20 @@ else:
                     st.experimental_rerun()
             
             with col2:
-                # Bouton de confirmation de suppression
+                # Logique de confirmation pour la suppression
                 if f"confirm_delete_{table_name}" not in st.session_state:
                     st.session_state[f"confirm_delete_{table_name}"] = False
 
                 if not st.session_state[f"confirm_delete_{table_name}"]:
-                    if st.button(f"Supprimer la table '{table_name}'", key=f"delete_btn_{table_name}"):
+                    if st.button(f"Supprimer la table '{table_name}'", type="primary", key=f"delete_btn_{table_name}"):
                         st.session_state[f"confirm_delete_{table_name}"] = True
-                        st.warning("⚠️ Attention : La suppression est définitive. Êtes-vous sûr ?")
+                        st.experimental_rerun()
                 else:
-                    st.error("Êtes-vous sûr de vouloir supprimer cette table ?")
+                    st.warning(f"⚠️ Êtes-vous sûr de vouloir supprimer définitivement la table '{table_name}' ?")
                     col2_1, col2_2 = st.columns(2)
                     with col2_1:
-                        if st.button("Confirmer la suppression", key=f"confirm_del_btn_{table_name}"):
+                        if st.button("Oui, supprimer", type="primary", key=f"confirm_del_btn_{table_name}"):
                             delete_table(table_name)
-                            # Réinitialiser la session state et relancer
                             st.session_state[f"confirm_delete_{table_name}"] = False
                             st.experimental_rerun()
                     with col2_2:
