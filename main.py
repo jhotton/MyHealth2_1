@@ -48,6 +48,62 @@ start_date = st.date_input(
 st.markdown("---")
 
 # --- Fonctions de tracé de graphique ---
+
+# Nouvelle fonction pour la pression artérielle
+def plot_blood_pressure(df, title, start_date):
+    """Génère et affiche un graphique pour les pressions systolique et diastolique."""
+    df_filtered = df[df['DateHeure'].dt.date >= start_date]
+
+    if df_filtered.empty or len(df_filtered) <= 1:
+        st.info(f"Pas assez de données pour le graphique '{title}' à partir de la date sélectionnée.")
+        return
+
+    st.subheader(f"Graphique : {title}")
+    fig = go.Figure()
+
+    # Définition des colonnes à tracer
+    data_columns = {
+        'Systolique': 'Systolique',
+        'Diastolique': 'Diastolique'
+    }
+
+    # Boucle pour ajouter les traces de mesures et de tendance pour chaque colonne
+    for column, name in data_columns.items():
+        # Trace des mesures (points et lignes)
+        fig.add_trace(go.Scatter(
+            x=df_filtered['DateHeure'],
+            y=df_filtered[column],
+            mode='lines+markers',
+            name=f'Mesures {name}'
+        ))
+
+        # Calcul et trace de la courbe de tendance LOWESS
+        try:
+            lowess = sm.nonparametric.lowess(
+                endog=df_filtered[column],
+                exog=df_filtered['DateHeure'].astype('int64'),
+                frac=0.3
+            )
+            fig.add_trace(go.Scatter(
+                x=pd.to_datetime(lowess[:, 0]),
+                y=lowess[:, 1],
+                mode='lines',
+                name=f'Tendance {name}',
+                line=dict(dash='dash')
+            ))
+        except Exception as e:
+            st.warning(f"Impossible de calculer la courbe de tendance pour '{name}'. Erreur: {e}")
+
+
+    fig.update_layout(
+        title=f"Évolution de {title} avec courbe de tendance",
+        xaxis_title="Date et Heure",
+        yaxis_title="Pression (mmHg)", # Unité commune pour les deux
+        legend_title_text="Légende"
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
 def plot_data(df, y_column, y_label, title):
     """Génère et affiche un graphique pour une colonne de données donnée."""
     df_filtered = df[df['DateHeure'].dt.date >= start_date]
@@ -99,8 +155,8 @@ if not df_pression.empty:
     df_pression['DateHeure'] = pd.to_datetime(df_pression['DateHeure'])
     df_pression['Systolique'] = pd.to_numeric(df_pression['Systolique'], errors='coerce')
     df_pression['Diastolique'] = pd.to_numeric(df_pression['Diastolique'], errors='coerce')
-    plot_data(df_pression, 'Systolique', 'mmHg', "Pression Artérielle (Systolique)")
-    plot_data(df_pression, 'Diastolique', 'mmHg', "Pression Artérielle (Diastolique)")
+    # Appel de la nouvelle fonction qui combine les deux graphiques
+    plot_blood_pressure(df_pression, "Pression Artérielle (Systolique et Diastolique)", start_date)
 else:
     st.info("Aucune donnée de Pression Artérielle trouvée.")
 st.markdown("---")
