@@ -33,38 +33,66 @@ if uploaded_file is not None:
 
 st.markdown("---")
 
-# --- SECTION 2 : AFFICHAGE DU GRAPHIQUE ---
-st.header("📈 Historique et Tendance")
+# --- SECTION 2 : AFFICHAGE DU GRAPHIQUE ET DES DONNÉES ---
+st.header("📈 Historique et Données")
 
 try:
+    # Lecture brute sans cache pour le débogage
     df_plot = conn.read(worksheet="glycemie", ttl=0)
     
     if not df_plot.empty:
-        # 1. Nettoyage des virgules décimales dans la colonne 'Valeur'
-        if df_plot['Valeur'].dtype == object:  # Si c'est du texte
-            df_plot['Valeur'] = df_plot['Valeur'].str.replace(',', '.')
+        # --- ÉTAPE A : NETTOYAGE RIGOUREUX ---
         
-        # 2. Conversion forcée en numérique
-        df_plot['Valeur'] = pd.to_numeric(df_plot['Valeur'], errors='coerce')
+        # 1. Gestion des virgules décimales
+        if 'Valeur' in df_plot.columns:
+            if df_plot['Valeur'].dtype == object: 
+                df_plot['Valeur'] = df_plot['Valeur'].astype(str).str.replace(',', '.')
+            df_plot['Valeur'] = pd.to_numeric(df_plot['Valeur'], errors='coerce')
         
-        # 3. Conversion robuste de la Date
-        df_plot['DateHeure'] = pd.to_datetime(df_plot['DateHeure'], dayfirst=True, errors='coerce')
-        
-        # 4. Suppression des lignes corrompues (si la date ou la valeur est vide)
+        # 2. Gestion des Dates (très important pour l'erreur 'DateHeure')
+        if 'DateHeure' in df_plot.columns:
+            df_plot['DateHeure'] = pd.to_datetime(df_plot['DateHeure'], dayfirst=True, errors='coerce')
+        else:
+            st.error("⚠️ La colonne 'DateHeure' est introuvable dans Google Sheets. Vérifiez l'orthographe exacte.")
+
+        # 3. Tri et suppression des lignes vides
         df_plot = df_plot.dropna(subset=['DateHeure', 'Valeur'])
         df_plot = df_plot.sort_values('DateHeure')
 
+        # --- ÉTAPE B : AFFICHAGE DU GRAPHIQUE ---
         if len(df_plot) > 1:
             fig = go.Figure()
-            # ... (reste du code du graphique identique) ...
-            fig.add_trace(go.Scatter(x=df_plot['DateHeure'], y=df_plot['Valeur'], mode='lines+markers', name='Glycémie'))
+            fig.add_trace(go.Scatter(
+                x=df_plot['DateHeure'], 
+                y=df_plot['Valeur'], 
+                mode='lines+markers', 
+                name='Glycémie',
+                line=dict(color='#FF4B4B')
+            ))
             
             # Tendance LOWESS
-            lowess = sm.nonparametric.lowess(df_plot['Valeur'], df_plot['DateHeure'].astype('int64'), frac=0.3)
-            fig.add_trace(go.Scatter(x=pd.to_datetime(lowess[:, 0]), y=lowess[:, 1], mode='lines', name='Tendance', line=dict(dash='dash', color='orange')))
+            try:
+                lowess = sm.nonparametric.lowess(df_plot['Valeur'], df_plot['DateHeure'].astype('int64'), frac=0.3)
+                fig.add_trace(go.Scatter(x=pd.to_datetime(lowess[:, 0]), y=lowess[:, 1], mode='lines', name='Tendance', line=dict(dash='dash', color='white')))
+            except:
+                pass
             
+            fig.update_layout(xaxis_title="Date", yaxis_title="mmol/L", template="plotly_dark")
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("Données insuffisantes pour le graphique (vérifiez le format des dates).")
+            st.info("Besoin d'au moins 2 mesures valides pour le graphique.")
+
+        # --- ÉTAPE C : AFFICHAGE DU TABLEAU AU BAS ---
+        st.markdown("### 📋 Tableau des données enregistrées")
+        # On affiche le tableau nettoyé pour voir ce que Python "comprend"
+        st.dataframe(df_plot, use_container_width=True)
+
+    else:
+        st.info("La feuille 'glycemie' est vide dans Google Sheets.")
+
 except Exception as e:
-    st.error(f"Impossible de charger le graphique : {e}")
+    st.error(f"Erreur technique : {e}")
+    # En cas d'erreur, on essaie quand même d'afficher ce qu'on a lu pour déboguer
+    if 'df_plot' in locals():
+        st.write("Données brutes lues avant erreur :")
+        st.dataframe(df_plot)
