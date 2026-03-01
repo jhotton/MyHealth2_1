@@ -5,18 +5,53 @@ import plotly.graph_objects as go
 import statsmodels.api as sm
 
 st.set_page_config(page_title="Suivi de la Glycémie", layout="wide")
-st.title("🩸 Suivi de la Glycémie")
+st.title("🩸 Suivi de la Glycémie (Version Robuste)")
 
-# --- Connexion à Google Sheets ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- SECTION 1 : AJOUT DE DONNÉES ---
-st.header("Importer de nouvelles mesures")
-uploaded_file = st.file_uploader("Choisissez un fichier CSV (DateHeure, Valeur, Note1, Note2)", type="csv")
+# --- SECTION 1 : IMPORTATION AVEC MAPPING ---
+st.header("📥 Importer des données")
+uploaded_file = st.file_uploader("Choisissez votre fichier CSV", type="csv")
 
 if uploaded_file is not None:
-    df_new = pd.read_csv(uploaded_file)
-    if st.button("Synchroniser avec Google Sheets"):
+    df_upload = pd.read_csv(uploaded_file)
+    st.write("Aperçu du fichier importé :")
+    st.dataframe(df_upload.head(3))
+
+    st.info("Associez les colonnes de votre fichier aux colonnes de destination :")
+    
+    # Création des sélecteurs pour mapper les colonnes
+    cols = df_upload.columns.tolist()
+    
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        sel_date = st.selectbox("Date et Heure", cols, index=cols.index('DateHeure') if 'DateHeure' in cols else 0)
+    with c2:
+        sel_val = st.selectbox("Valeur (Glycémie)", cols, index=cols.index('Valeur') if 'Valeur' in cols else 0)
+    with c3:
+        sel_n1 = st.selectbox("Note 1 (Optionnel)", ["Aucune"] + cols)
+    with c4:
+        sel_n2 = st.selectbox("Note 2 (Optionnel)", ["Aucune"] + cols)
+
+    if st.button("🚀 Synchroniser avec Google Sheets"):
+        # 1. Préparation du DataFrame formaté
+        df_to_push = pd.DataFrame()
+        df_to_push['DateHeure'] = df_upload[sel_date]
+        df_to_push['Valeur'] = df_upload[sel_val]
+        df_to_push['Note1'] = df_upload[sel_n1] if sel_n1 != "Aucune" else ""
+        df_to_push['Note2'] = df_upload[sel_n2] if sel_n2 != "Aucune" else ""
+
+        # 2. Nettoyage immédiat avant l'envoi
+        # Remplacement virgule par point
+        if df_to_push['Valeur'].dtype == object:
+            df_to_push['Valeur'] = df_to_push['Valeur'].astype(str).str.replace(',', '.')
+        df_to_push['Valeur'] = pd.to_numeric(df_to_push['Valeur'], errors='coerce')
+        
+        # Format Date
+        df_to_push['DateHeure'] = pd.to_datetime(df_to_push['DateHeure'], dayfirst=True, errors='coerce')
+        df_to_push = df_to_push.dropna(subset=['DateHeure', 'Valeur'])
+
+        # 3. Fusion avec l'existant
         with st.spinner("Mise à jour du Cloud..."):
             try:
                 try:
@@ -24,75 +59,45 @@ if uploaded_file is not None:
                 except:
                     existing = pd.DataFrame()
 
-                final = pd.concat([existing, df_new]).drop_duplicates(subset=['DateHeure'], keep='last')
+                final = pd.concat([existing, df_to_push]).drop_duplicates(subset=['DateHeure'], keep='last')
                 conn.update(worksheet="glycemie", data=final)
-                st.success("✅ Données synchronisées !")
-                st.cache_data.clear() # Force le rafraîchissement du graphique
+                st.success(f"✅ {len(df_to_push)} lignes ajoutées/mises à jour !")
+                st.cache_data.clear()
             except Exception as e:
-                st.error(f"Erreur : {e}")
+                st.error(f"Erreur lors de l'envoi : {e}")
 
 st.markdown("---")
 
-# --- SECTION 2 : AFFICHAGE DU GRAPHIQUE ET DES DONNÉES ---
-st.header("📈 Historique et Données")
+# --- SECTION 2 : AFFICHAGE ---
+st.header("📈 Historique et Tendance")
 
 try:
-    # Lecture brute sans cache pour le débogage
     df_plot = conn.read(worksheet="glycemie", ttl=0)
     
     if not df_plot.empty:
-        # --- ÉTAPE A : NETTOYAGE RIGOUREUX ---
-        
-        # 1. Gestion des virgules décimales
-        if 'Valeur' in df_plot.columns:
-            if df_plot['Valeur'].dtype == object: 
-                df_plot['Valeur'] = df_plot['Valeur'].astype(str).str.replace(',', '.')
-            df_plot['Valeur'] = pd.to_numeric(df_plot['Valeur'], errors='coerce')
-        
-        # 2. Gestion des Dates (très important pour l'erreur 'DateHeure')
-        if 'DateHeure' in df_plot.columns:
-            df_plot['DateHeure'] = pd.to_datetime(df_plot['DateHeure'], dayfirst=True, errors='coerce')
-        else:
-            st.error("⚠️ La colonne 'DateHeure' est introuvable dans Google Sheets. Vérifiez l'orthographe exacte.")
+        # Nettoyage pour affichage (au cas où des données sales seraient déjà dans la sheet)
+        df_plot['DateHeure'] = pd.to_datetime(df_plot['DateHeure'], errors='coerce')
+        if df_plot['Valeur'].dtype == object:
+            df_plot['Valeur'] = df_plot['Valeur'].astype(str).str.replace(',', '.')
+        df_plot['Valeur'] = pd.to_numeric(df_plot['Valeur'], errors='coerce')
+        df_plot = df_plot.dropna(subset=['DateHeure', 'Valeur']).sort_values('DateHeure')
 
-        # 3. Tri et suppression des lignes vides
-        df_plot = df_plot.dropna(subset=['DateHeure', 'Valeur'])
-        df_plot = df_plot.sort_values('DateHeure')
-
-        # --- ÉTAPE B : AFFICHAGE DU GRAPHIQUE ---
+        # Graphique
         if len(df_plot) > 1:
             fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=df_plot['DateHeure'], 
-                y=df_plot['Valeur'], 
-                mode='lines+markers', 
-                name='Glycémie',
-                line=dict(color='#FF4B4B')
-            ))
+            fig.add_trace(go.Scatter(x=df_plot['DateHeure'], y=df_plot['Valeur'], mode='lines+markers', name='Glycémie'))
             
-            # Tendance LOWESS
-            try:
-                lowess = sm.nonparametric.lowess(df_plot['Valeur'], df_plot['DateHeure'].astype('int64'), frac=0.3)
-                fig.add_trace(go.Scatter(x=pd.to_datetime(lowess[:, 0]), y=lowess[:, 1], mode='lines', name='Tendance', line=dict(dash='dash', color='white')))
-            except:
-                pass
+            # Tendance
+            lowess = sm.nonparametric.lowess(df_plot['Valeur'], df_plot['DateHeure'].astype('int64'), frac=0.3)
+            fig.add_trace(go.Scatter(x=pd.to_datetime(lowess[:, 0]), y=lowess[:, 1], mode='lines', name='Tendance', line=dict(dash='dash', color='white')))
             
             fig.update_layout(xaxis_title="Date", yaxis_title="mmol/L", template="plotly_dark")
             st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Besoin d'au moins 2 mesures valides pour le graphique.")
 
-        # --- ÉTAPE C : AFFICHAGE DU TABLEAU AU BAS ---
-        st.markdown("### 📋 Tableau des données enregistrées")
-        # On affiche le tableau nettoyé pour voir ce que Python "comprend"
+        # Tableau au bas
+        st.subheader("📋 Données enregistrées")
         st.dataframe(df_plot, use_container_width=True)
-
     else:
-        st.info("La feuille 'glycemie' est vide dans Google Sheets.")
-
+        st.info("Aucune donnée dans Google Sheets.")
 except Exception as e:
     st.error(f"Erreur technique : {e}")
-    # En cas d'erreur, on essaie quand même d'afficher ce qu'on a lu pour déboguer
-    if 'df_plot' in locals():
-        st.write("Données brutes lues avant erreur :")
-        st.dataframe(df_plot)
