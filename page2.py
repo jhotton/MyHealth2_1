@@ -6,7 +6,6 @@ import plotly.graph_objects as go
 st.set_page_config(page_title="Pression Artérielle", layout="wide")
 st.title("🩺 Suivi de la Pression Artérielle")
 
-# Connexion à Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- SECTION 1 : IMPORTATION XLSX ---
@@ -14,13 +13,14 @@ st.header("📥 Importer des données (Excel)")
 uploaded_file = st.file_uploader("Choisissez votre fichier Excel (.xlsx)", type="xlsx")
 
 if uploaded_file is not None:
-    # Lecture du fichier Excel
     df_raw = pd.read_excel(uploaded_file)
     cols = df_raw.columns.tolist()
     
+    st.write("### 1. Aperçu du fichier Excel sélectionné")
+    st.dataframe(df_raw.head(3))
+
     st.info("Associez les colonnes de votre Excel aux champs de destination :")
     
-    # Interface de mapping
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         sel_date = st.selectbox("Colonne Date", cols, index=0)
@@ -34,69 +34,65 @@ if uploaded_file is not None:
     with c4:
         sel_n2 = st.selectbox("Note 2", ["Aucune"] + cols)
 
-    if st.button("🚀 Synchroniser avec Google Sheets"):
-        try:
-            df_to_push = pd.DataFrame()
-            
-            # --- FUSION DATE ET HEURE ---
-            # On combine les deux colonnes en une chaîne, puis on convertit en datetime
-            combined_dt = df_raw[sel_date].astype(str) + " " + df_raw[sel_heure].astype(str)
-            df_to_push['DateHeure'] = pd.to_datetime(combined_dt, errors='coerce')
-            
-            # --- NETTOYAGE NUMÉRIQUE ---
-            df_to_push['Systolique'] = pd.to_numeric(df_raw[sel_sys].astype(str).str.replace(',', '.'), errors='coerce')
-            df_to_push['Diastolique'] = pd.to_numeric(df_raw[sel_dia].astype(str).str.replace(',', '.'), errors='coerce')
-            
-            if sel_pouls != "Aucun":
-                df_to_push['Pouls'] = pd.to_numeric(df_raw[sel_pouls].astype(str).str.replace(',', '.'), errors='coerce')
-            else:
-                df_to_push['Pouls'] = 0
+    # --- PRÉPARATION ---
+    try:
+        df_prep = pd.DataFrame()
+        # Fusion Date + Heure
+        combined_dt = df_raw[sel_date].astype(str) + " " + df_raw[sel_heure].astype(str)
+        df_prep['DateHeure'] = pd.to_datetime(combined_dt, errors='coerce')
+        
+        # Valeurs numériques
+        df_prep['Systolique'] = pd.to_numeric(df_raw[sel_sys].astype(str).str.replace(',', '.'), errors='coerce')
+        df_prep['Diastolique'] = pd.to_numeric(df_raw[sel_dia].astype(str).str.replace(',', '.'), errors='coerce')
+        df_prep['Pouls'] = pd.to_numeric(df_raw[sel_pouls].astype(str).str.replace(',', '.'), errors='coerce') if sel_pouls != "Aucun" else 0
+        df_prep['Note1'] = df_raw[sel_n1] if sel_n1 != "Aucune" else ""
+        df_prep['Note2'] = df_raw[sel_n2] if sel_n2 != "Aucune" else ""
+        
+        df_prep = df_prep.dropna(subset=['DateHeure', 'Systolique'])
 
-            # --- NOTES ---
-            df_to_push['Note1'] = df_raw[sel_n1] if sel_n1 != "Aucune" else ""
-            df_to_push['Note2'] = df_raw[sel_n2] if sel_n2 != "Aucune" else ""
+        st.write("### 2. Aperçu des données prêtes à être ajoutées")
+        st.dataframe(df_prep.head(3))
+        
+    except Exception as e:
+        st.error(f"Erreur de préparation : {e}")
 
-            # Suppression des lignes invalides (date ou systolique manquante)
-            df_to_push = df_to_push.dropna(subset=['DateHeure', 'Systolique'])
-            
-            # Formatage pour Google Sheets
-            df_to_push['DateHeure'] = df_to_push['DateHeure'].dt.strftime('%Y-%m-%d %H:%M:%S')
+    if st.button("🚀 Synchroniser avec PressionBrut"):
+        with st.spinner("Mise à jour de la feuille PressionBrut..."):
+            try:
+                # Formatage pour l'envoi
+                df_to_push = df_prep.copy()
+                df_to_push['DateHeure'] = df_to_push['DateHeure'].dt.strftime('%Y-%m-%d %H:%M:%S')
 
-            # --- ENVOI ---
-            with st.spinner("Mise à jour du Cloud..."):
-                try:
-                    existing = conn.read(worksheet="pression", ttl=0)
-                except:
-                    existing = pd.DataFrame(columns=['DateHeure', 'Systolique', 'Diastolique', 'Pouls', 'Note1', 'Note2'])
-
-                final = pd.concat([existing, df_to_push]).drop_duplicates(subset=['DateHeure'], keep='last')
-                conn.update(worksheet="pression", data=final)
+                # Lecture de l'existant dans "PressionBrut"
+                existing = conn.read(worksheet="PressionBrut", ttl=0)
                 
-                st.success(f"✅ {len(df_to_push)} mesures de pression synchronisées !")
+                # Fusion et Dédoublonnage
+                final = pd.concat([existing, df_to_push]).drop_duplicates(subset=['DateHeure'], keep='last')
+                
+                # Envoi
+                conn.update(worksheet="PressionBrut", data=final)
+                
+                st.success("✅ Synchronisation réussie dans PressionBrut !")
                 st.cache_data.clear()
-
-        except Exception as e:
-            st.error(f"Erreur technique : {e}")
+            except Exception as e:
+                st.error(f"Erreur lors de l'accès à la feuille 'PressionBrut' : {e}")
 
 st.markdown("---")
 
-# --- SECTION 2 : GRAPHIQUE ---
-st.header("📈 Historique de Pression")
+# --- SECTION 2 : VISUALISATION ---
+st.header("📈 Historique (depuis PressionBrut)")
 
 try:
-    df_plot = conn.read(worksheet="pression", ttl=0)
+    df_plot = conn.read(worksheet="PressionBrut", ttl=0)
     if not df_plot.empty:
         df_plot['DateHeure'] = pd.to_datetime(df_plot['DateHeure'])
         df_plot = df_plot.sort_values('DateHeure')
 
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df_plot['DateHeure'], y=df_plot['Systolique'], mode='lines+markers', name='Systolique (Max)'))
-        fig.add_trace(go.Scatter(x=df_plot['DateHeure'], y=df_plot['Diastolique'], mode='lines+markers', name='Diastolique (Min)'))
+        fig.add_trace(go.Scatter(x=df_plot['DateHeure'], y=df_plot['Systolique'], mode='lines+markers', name='Systolique'))
+        fig.add_trace(go.Scatter(x=df_plot['DateHeure'], y=df_plot['Diastolique'], mode='lines+markers', name='Diastolique'))
         
         fig.update_layout(xaxis_title="Date", yaxis_title="mmHg", template="plotly_dark")
         st.plotly_chart(fig, use_container_width=True)
-        
-        st.subheader("📋 Données enregistrées")
-        st.dataframe(df_plot, use_container_width=True)
 except:
-    st.info("Aucune donnée de pression à afficher.")
+    st.info("En attente de données dans PressionBrut.")
