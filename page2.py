@@ -75,38 +75,77 @@ if uploaded_file is not None:
 
 st.markdown("---")
 
-# --- SECTION VISUALISATION ---
+# --- SECTION 2 : VISUALISATION ---
 st.header("📈 Tableaux de bord")
 
 try:
-    df_p = conn.read(worksheet="PressionSynthese", ttl=0)
-    if not df_p.empty:
-        df_p['DateHeure'] = pd.to_datetime(df_p['DateHeure'])
-        df_p = df_p.sort_values('DateHeure')
+    # 1. Chargement des deux sources
+    df_brut = conn.read(worksheet="PressionBrut", ttl=0)
+    df_syn = conn.read(worksheet="PressionSynthese", ttl=0)
+
+    if not df_syn.empty:
+        # Conversion des dates
+        df_brut['DateHeure'] = pd.to_datetime(df_brut['DateHeure'])
+        df_syn['DateHeure'] = pd.to_datetime(df_syn['DateHeure'])
+        
+        # Tri chronologique
+        df_brut = df_brut.sort_values('DateHeure')
+        df_syn = df_syn.sort_values('DateHeure')
 
         # --- Graphique 1 : Pression Artérielle ---
-        st.subheader("Évolution de la Pression (Synthèse)")
+        st.subheader("Évolution de la Pression (Brut vs Synthèse)")
         fig_pres = go.Figure()
-        fig_pres.add_trace(go.Scatter(x=df_p['DateHeure'], y=df_p['Systolique'], name='Systolique', line=dict(color='#FF4B4B', width=3)))
-        fig_pres.add_trace(go.Scatter(x=df_p['DateHeure'], y=df_p['Diastolique'], name='Diastolique', line=dict(color='#00CC96', width=2)))
-        fig_pres.update_layout(height=400, template="plotly_dark", xaxis_title="Date", yaxis_title="mmHg")
+
+        # AJOUT DES POINTS GRIS (Données brutes)
+        fig_pres.add_trace(go.Scatter(
+            x=df_brut['DateHeure'], 
+            y=df_brut['Systolique'], 
+            mode='markers', 
+            name='Mesures brutes',
+            marker=dict(color='rgba(150, 150, 150, 0.3)', size=6) # Gris transparent
+        ))
+
+        # AJOUT DES LIGNES (Données de synthèse)
+        fig_pres.add_trace(go.Scatter(
+            x=df_syn['DateHeure'], 
+            y=df_syn['Systolique'], 
+            name='Systolique (Min)', 
+            line=dict(color='#FF4B4B', width=3)
+        ))
+        fig_pres.add_trace(go.Scatter(
+            x=df_syn['DateHeure'], 
+            y=df_syn['Diastolique'], 
+            name='Diastolique (Min)', 
+            line=dict(color='#00CC96', width=2)
+        ))
+
+        fig_pres.update_layout(height=450, template="plotly_dark", xaxis_title="Date", yaxis_title="mmHg")
         st.plotly_chart(fig_pres, use_container_width=True)
 
         # --- Graphique 2 : Pouls ---
         st.subheader("Fréquence Cardiaque (Pouls)")
         fig_pouls = go.Figure()
+        
+        # Points bruts pour le pouls
         fig_pouls.add_trace(go.Scatter(
-            x=df_p['DateHeure'], 
-            y=df_p['Pouls'], 
-            name='Pouls (BPM)', 
-            mode='lines+markers',
-            line=dict(color='#636EFA', dash='dot'),
-            marker=dict(size=8)
+            x=df_brut['DateHeure'], 
+            y=df_brut['Pouls'], 
+            mode='markers', 
+            name='Pouls brut',
+            marker=dict(color='rgba(100, 150, 255, 0.2)', size=5)
         ))
+        
+        # Ligne de synthèse pour le pouls
+        fig_pouls.add_trace(go.Scatter(
+            x=df_syn['DateHeure'], 
+            y=df_syn['Pouls'], 
+            name='Pouls (Synthèse)', 
+            mode='lines+markers',
+            line=dict(color='#636EFA', dash='dot')
+        ))
+        
         fig_pouls.update_layout(height=300, template="plotly_dark", xaxis_title="Date", yaxis_title="BPM")
         st.plotly_chart(fig_pouls, use_container_width=True)
 
-        with st.expander("Voir le tableau des données de synthèse"):
-            st.dataframe(df_p, use_container_width=True)
-except:
-    st.info("Aucune donnée de synthèse à afficher.")
+except Exception as e:
+    st.info(f"En attente de données : {e}")
