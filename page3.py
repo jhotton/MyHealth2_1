@@ -37,59 +37,34 @@ st.markdown("---")
 st.header("📈 Historique et Tendance")
 
 try:
-    # Lecture des données (on utilise ttl=0 pour voir les ajouts immédiatement)
     df_plot = conn.read(worksheet="glycemie", ttl=0)
     
     if not df_plot.empty:
-        # Nettoyage et conversion
-        df_plot['DateHeure'] = pd.to_datetime(df_plot['DateHeure'])
-        df_plot = df_plot.sort_values('DateHeure')
+        # 1. Nettoyage des virgules décimales dans la colonne 'Valeur'
+        if df_plot['Valeur'].dtype == object:  # Si c'est du texte
+            df_plot['Valeur'] = df_plot['Valeur'].str.replace(',', '.')
+        
+        # 2. Conversion forcée en numérique
         df_plot['Valeur'] = pd.to_numeric(df_plot['Valeur'], errors='coerce')
-        df_plot = df_plot.dropna(subset=['Valeur'])
+        
+        # 3. Conversion robuste de la Date
+        df_plot['DateHeure'] = pd.to_datetime(df_plot['DateHeure'], dayfirst=True, errors='coerce')
+        
+        # 4. Suppression des lignes corrompues (si la date ou la valeur est vide)
+        df_plot = df_plot.dropna(subset=['DateHeure', 'Valeur'])
+        df_plot = df_plot.sort_values('DateHeure')
 
         if len(df_plot) > 1:
             fig = go.Figure()
+            # ... (reste du code du graphique identique) ...
+            fig.add_trace(go.Scatter(x=df_plot['DateHeure'], y=df_plot['Valeur'], mode='lines+markers', name='Glycémie'))
             
-            # Points de mesure
-            fig.add_trace(go.Scatter(
-                x=df_plot['DateHeure'], 
-                y=df_plot['Valeur'], 
-                mode='lines+markers', 
-                name='Glycémie (mmol/L)',
-                line=dict(color='#FF4B4B')
-            ))
-
-            # Ligne de tendance LOWESS
-            try:
-                lowess = sm.nonparametric.lowess(
-                    df_plot['Valeur'], 
-                    df_plot['DateHeure'].astype('int64'), 
-                    frac=0.3
-                )
-                fig.add_trace(go.Scatter(
-                    x=pd.to_datetime(lowess[:, 0]), 
-                    y=lowess[:, 1], 
-                    mode='lines', 
-                    name='Tendance', 
-                    line=dict(dash='dash', color='white')
-                ))
-            except:
-                pass
-
-            fig.update_layout(
-                xaxis_title="Date et Heure",
-                yaxis_title="mmol/L",
-                template="plotly_dark", # Optionnel : pour un look moderne
-                hovermode="x unified"
-            )
+            # Tendance LOWESS
+            lowess = sm.nonparametric.lowess(df_plot['Valeur'], df_plot['DateHeure'].astype('int64'), frac=0.3)
+            fig.add_trace(go.Scatter(x=pd.to_datetime(lowess[:, 0]), y=lowess[:, 1], mode='lines', name='Tendance', line=dict(dash='dash', color='orange')))
             
             st.plotly_chart(fig, use_container_width=True)
-            
-            with st.expander("Voir le tableau des données"):
-                st.dataframe(df_plot)
         else:
-            st.info("Ajoutez au moins deux mesures pour afficher le graphique.")
-    else:
-        st.info("La feuille Google Sheets est vide.")
+            st.info("Données insuffisantes pour le graphique (vérifiez le format des dates).")
 except Exception as e:
     st.error(f"Impossible de charger le graphique : {e}")
