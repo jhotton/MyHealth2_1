@@ -96,22 +96,33 @@ try:
         st.subheader("Évolution de la Pression (Brut vs Synthèse)")
         fig_pres = go.Figure()
 
-        # AJOUT DES POINTS GRIS (Données brutes)
+        # POINTS GRIS : Systolique Brut
         fig_pres.add_trace(go.Scatter(
             x=df_brut['DateHeure'], 
             y=df_brut['Systolique'], 
             mode='markers', 
-            name='Mesures brutes',
-            marker=dict(color='rgba(150, 150, 150, 0.3)', size=6) # Gris transparent
+            name='Sys. brute',
+            marker=dict(color='rgba(200, 200, 200, 0.3)', size=5) 
         ))
 
-        # AJOUT DES LIGNES (Données de synthèse)
+        # POINTS GRIS : Diastolique Brut
+        fig_pres.add_trace(go.Scatter(
+            x=df_brut['DateHeure'], 
+            y=df_brut['Diastolique'], 
+            mode='markers', 
+            name='Dia. brute',
+            marker=dict(color='rgba(150, 150, 150, 0.2)', size=5)
+        ))
+
+        # LIGNE ROUGE : Systolique Synthèse
         fig_pres.add_trace(go.Scatter(
             x=df_syn['DateHeure'], 
             y=df_syn['Systolique'], 
             name='Systolique (Min)', 
             line=dict(color='#FF4B4B', width=3)
         ))
+
+        # LIGNE VERTE : Diastolique Synthèse
         fig_pres.add_trace(go.Scatter(
             x=df_syn['DateHeure'], 
             y=df_syn['Diastolique'], 
