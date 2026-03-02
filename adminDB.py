@@ -73,3 +73,42 @@ st.markdown("---")
 if st.button("🧹 Vider le cache de l'application"):
     st.cache_data.clear()
     st.success("Cache vidé !")
+
+
+st.markdown("---")
+st.header("💾 Exportation & Sauvegarde (Backup)")
+st.info("Téléchargez vos données actuelles au format CSV pour les conserver localement.")
+
+try:
+    # Liste des tables à exporter
+    tables_to_export = ["glycemie", "PressionSynthese", "poids", "PressionBrut"]
+    
+    # Création de colonnes pour organiser les boutons de téléchargement
+    ex_col1, ex_col2 = st.columns(2)
+    
+    for i, table_name in enumerate(tables_to_export):
+        # On alterne entre la colonne 1 et 2
+        target_col = ex_col1 if i % 2 == 0 else ex_col2
+        
+        try:
+            # Lecture des données depuis GSheets
+            df_export = conn_gsheets.read(worksheet=table_name, ttl=0)
+            
+            if not df_export.empty:
+                # Conversion en CSV (formatage standard)
+                csv_data = df_export.to_csv(index=False).encode('utf-8-sig')
+                
+                target_col.download_button(
+                    label=f"⬇️ Télécharger {table_name}.csv",
+                    data=csv_data,
+                    file_name=f"backup_{table_name}_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime='text/csv',
+                    key=f"btn_{table_name}"
+                )
+            else:
+                target_col.warning(f"La table {table_name} est vide.")
+        except Exception as e:
+            target_col.error(f"Erreur sur {table_name}: {e}")
+
+except Exception as e:
+    st.error(f"Erreur lors de la préparation des exports : {e}")
