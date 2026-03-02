@@ -4,3 +4,4 @@ plotly
 statsmodels
 openpyxl
 st-gsheets-connection
+streamlit-gsheets
