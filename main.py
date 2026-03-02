@@ -7,7 +7,7 @@ from datetime import datetime
 
 # --- Configuration ---
 st.set_page_config(page_title="Tableau de Bord Santé", layout="wide")
-st.title("🏥 Résumé Global (Tendance LOWESS)")
+st.title("🏥 Résumé Global")
 st.markdown("> *Données filtrées à partir du 01/10/2024*")
 
 # Connexion à Google Sheets
