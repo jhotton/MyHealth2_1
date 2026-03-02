@@ -90,3 +90,5 @@ with col2:
         add_lowess_trend(fig_p, df_poids, 'Poids_kg', 'Poids', '#00B4D8')
         fig_p.update_layout(template="plotly_dark", height=350, yaxis_title="kg")
         st.plotly_chart(fig_p, use_container_width=True)
+
+st.celebrate()
