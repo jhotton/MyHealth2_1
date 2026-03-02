@@ -91,4 +91,4 @@ with col2:
         fig_p.update_layout(template="plotly_dark", height=350, yaxis_title="kg")
         st.plotly_chart(fig_p, use_container_width=True)
 
-st.baloons()
+st.balloons()
