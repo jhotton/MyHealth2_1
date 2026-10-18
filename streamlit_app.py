@@ -9,7 +9,7 @@ if "visit_tracked" not in st.session_state:
 
     payload = {
         "account_name": "jhotton",
-        "app_name": "nom-de-mon-app",
+        "app_name": "MyHealth",
         "page_name": "accueil",
     }
     headers = {"X-API-Key": api_key}
